@@ -94,6 +94,35 @@ func resourceAwsRoute53Record() *schema.Resource {
 				Optional: true,
 			},
 
+			"region": &schema.Schema{ // AWS region from which to evaluate latency
+				Type:          schema.TypeString,
+				Optional:      true,
+				ConflictsWith: []string{"failover", "weight", "geolocation"},
+			},
+
+			"geolocation": &schema.Schema{ // AWS Geolocation
+				Type:          schema.TypeSet,
+				Optional:      true,
+				ConflictsWith: []string{"failover", "weight", "region"},
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"continent": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"country": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"subdivision": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+					},
+				},
+				Set: resourceAwsRoute53GeolocationRecordHash,
+			},
+
 			"health_check_id": &schema.Schema{ // ID of health check
 				Type:     schema.TypeString,
 				Optional: true,
@@ -274,6 +303,7 @@ func resourceAwsRoute53RecordRead(d *schema.ResourceData, meta interface{}) erro
 		d.Set("set_identifier", record.SetIdentifier)
 		d.Set("failover", record.Failover)
 		d.Set("health_check_id", record.HealthCheckId)
+		d.Set("region", record.Region)
 
 		break
 	}
@@ -412,6 +442,25 @@ func resourceAwsRoute53RecordBuildSet(d *schema.ResourceData, zoneName string) (
 		rec.Weight = aws.Int64(int64(d.Get("weight").(int)))
 	}
 
+	if v, ok := d.GetOk("region"); ok {
+		rec.Region = aws.String(v.(string))
+	}
+
+	if v, ok := d.GetOk("geolocation"); ok {
+		geolocations := v.(*schema.Set).List()
+		if len(geolocations) > 1 {
+			return nil, fmt.Errorf("You can only define a single geolocation target per record")
+		}
+		geolocation := geolocations[0].(map[string]interface{})
+
+		rec.GeoLocation = &route53.GeoLocation{
+			ContinentCode:   nilString(geolocation["continent"].(string)),
+			CountryCode:     nilString(geolocation["country"].(string)),
+			SubdivisionCode: nilString(geolocation["subdivision"].(string)),
+		}
+		log.Printf("[DEBUG] Creating geolocation: %#v", geolocation)
+	}
+
 	return rec, nil
 }
 
@@ -448,12 +497,32 @@ func expandRecordName(name, zone string) string {
 	return rn
 }
 
+// nilString takes a string as an argument and returns a string
+// pointer. The returned pointer is nil if the string argument is
+// empty, otherwise it is a pointer to a copy of the string.
+func nilString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return aws.String(s)
+}
+
 func resourceAwsRoute53AliasRecordHash(v interface{}) int {
 	var buf bytes.Buffer
 	m := v.(map[string]interface{})
 	buf.WriteString(fmt.Sprintf("%s-", m["name"].(string)))
 	buf.WriteString(fmt.Sprintf("%s-", m["zone_id"].(string)))
 	buf.WriteString(fmt.Sprintf("%t-", m["evaluate_target_health"].(bool)))
+
+	return hashcode.String(buf.String())
+}
+
+func resourceAwsRoute53GeolocationRecordHash(v interface{}) int {
+	var buf bytes.Buffer
+	m := v.(map[string]interface{})
+	buf.WriteString(fmt.Sprintf("%s-", m["continent"].(string)))
+	buf.WriteString(fmt.Sprintf("%s-", m["country"].(string)))
+	buf.WriteString(fmt.Sprintf("%s-", m["subdivision"].(string)))
 
 	return hashcode.String(buf.String())
 }
