@@ -445,6 +445,7 @@ func resourceAwsRoute53RecordBuildSet(d *schema.ResourceData, zoneName string) (
 
 	if v, ok := d.GetOk("region"); ok {
 		rec.Region = aws.String(v.(string))
+		log.Printf("[DEBUG] Creating Region: %#v", *rec.Region)
 	}
 
 	if v, ok := d.GetOk("geolocation"); ok {
