@@ -24,63 +24,63 @@ func resourceAwsRoute53Record() *schema.Resource {
 		Delete: resourceAwsRoute53RecordDelete,
 
 		Schema: map[string]*schema.Schema{
-			"name": &schema.Schema{
+			"name": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
 			},
 
-			"fqdn": &schema.Schema{
+			"fqdn": {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
 
-			"type": &schema.Schema{
+			"type": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
 			},
 
-			"zone_id": &schema.Schema{
+			"zone_id": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
 			},
 
-			"ttl": &schema.Schema{
+			"ttl": {
 				Type:          schema.TypeInt,
 				Optional:      true,
 				ConflictsWith: []string{"alias"},
 			},
 
-			"weight": &schema.Schema{
+			"weight": {
 				Type:     schema.TypeInt,
 				Optional: true,
 			},
 
-			"set_identifier": &schema.Schema{
+			"set_identifier": {
 				Type:     schema.TypeString,
 				Optional: true,
 				ForceNew: true,
 			},
 
-			"alias": &schema.Schema{
+			"alias": {
 				Type:          schema.TypeSet,
 				Optional:      true,
 				ConflictsWith: []string{"records", "ttl"},
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"zone_id": &schema.Schema{
+						"zone_id": {
 							Type:     schema.TypeString,
 							Required: true,
 						},
 
-						"name": &schema.Schema{
+						"name": {
 							Type:     schema.TypeString,
 							Required: true,
 						},
 
-						"evaluate_target_health": &schema.Schema{
+						"evaluate_target_health": {
 							Type:     schema.TypeBool,
 							Required: true,
 						},
@@ -89,17 +89,46 @@ func resourceAwsRoute53Record() *schema.Resource {
 				Set: resourceAwsRoute53AliasRecordHash,
 			},
 
-			"failover": &schema.Schema{ // PRIMARY | SECONDARY
+			"failover": { // PRIMARY | SECONDARY
 				Type:     schema.TypeString,
 				Optional: true,
 			},
 
-			"health_check_id": &schema.Schema{ // ID of health check
+			"region": { // AWS region from which to evaluate latency
+				Type:          schema.TypeString,
+				Optional:      true,
+				ConflictsWith: []string{"failover", "weight", "geolocation"},
+			},
+
+			"geolocation": { // AWS Geolocation
+				Type:          schema.TypeSet,
+				Optional:      true,
+				ConflictsWith: []string{"failover", "weight", "region"},
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"continent": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"country": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+						"subdivision": {
+							Type:     schema.TypeString,
+							Optional: true,
+						},
+					},
+				},
+				Set: resourceAwsRoute53GeolocationRecordHash,
+			},
+
+			"health_check_id": { // ID of health check
 				Type:     schema.TypeString,
 				Optional: true,
 			},
 
-			"records": &schema.Schema{
+			"records": {
 				Type:          schema.TypeSet,
 				ConflictsWith: []string{"alias"},
 				Elem:          &schema.Schema{Type: schema.TypeString},
@@ -145,7 +174,7 @@ func resourceAwsRoute53RecordCreate(d *schema.ResourceData, meta interface{}) er
 	changeBatch := &route53.ChangeBatch{
 		Comment: aws.String("Managed by Terraform"),
 		Changes: []*route53.Change{
-			&route53.Change{
+			{
 				Action:            aws.String("UPSERT"),
 				ResourceRecordSet: rec,
 			},
@@ -274,6 +303,7 @@ func resourceAwsRoute53RecordRead(d *schema.ResourceData, meta interface{}) erro
 		d.Set("set_identifier", record.SetIdentifier)
 		d.Set("failover", record.Failover)
 		d.Set("health_check_id", record.HealthCheckId)
+		d.Set("region", record.Region)
 
 		break
 	}
@@ -306,7 +336,7 @@ func resourceAwsRoute53RecordDelete(d *schema.ResourceData, meta interface{}) er
 	changeBatch := &route53.ChangeBatch{
 		Comment: aws.String("Deleted by Terraform"),
 		Changes: []*route53.Change{
-			&route53.Change{
+			{
 				Action:            aws.String("DELETE"),
 				ResourceRecordSet: rec,
 			},
@@ -412,6 +442,25 @@ func resourceAwsRoute53RecordBuildSet(d *schema.ResourceData, zoneName string) (
 		rec.Weight = aws.Int64(int64(d.Get("weight").(int)))
 	}
 
+	if v, ok := d.GetOk("region"); ok {
+		rec.Region = aws.String(v.(string))
+	}
+
+	if v, ok := d.GetOk("geolocation"); ok {
+		geolocations := v.(*schema.Set).List()
+		if len(geolocations) > 1 {
+			return nil, fmt.Errorf("You can only define a single geolocation target per record")
+		}
+		geolocation := geolocations[0].(map[string]interface{})
+
+		rec.GeoLocation = &route53.GeoLocation{
+			ContinentCode:   nilString(geolocation["continent"].(string)),
+			CountryCode:     nilString(geolocation["country"].(string)),
+			SubdivisionCode: nilString(geolocation["subdivision"].(string)),
+		}
+		log.Printf("[DEBUG] Creating geolocation: %#v", geolocation)
+	}
+
 	return rec, nil
 }
 
@@ -448,12 +497,32 @@ func expandRecordName(name, zone string) string {
 	return rn
 }
 
+// nilString takes a string as an argument and returns a string
+// pointer. The returned pointer is nil if the string argument is
+// empty, otherwise it is a pointer to a copy of the string.
+func nilString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return aws.String(s)
+}
+
 func resourceAwsRoute53AliasRecordHash(v interface{}) int {
 	var buf bytes.Buffer
 	m := v.(map[string]interface{})
 	buf.WriteString(fmt.Sprintf("%s-", m["name"].(string)))
 	buf.WriteString(fmt.Sprintf("%s-", m["zone_id"].(string)))
 	buf.WriteString(fmt.Sprintf("%t-", m["evaluate_target_health"].(bool)))
+
+	return hashcode.String(buf.String())
+}
+
+func resourceAwsRoute53GeolocationRecordHash(v interface{}) int {
+	var buf bytes.Buffer
+	m := v.(map[string]interface{})
+	buf.WriteString(fmt.Sprintf("%s-", m["continent"].(string)))
+	buf.WriteString(fmt.Sprintf("%s-", m["country"].(string)))
+	buf.WriteString(fmt.Sprintf("%s-", m["subdivision"].(string)))
 
 	return hashcode.String(buf.String())
 }
