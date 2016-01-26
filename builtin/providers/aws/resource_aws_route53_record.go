@@ -24,7 +24,7 @@ func resourceAwsRoute53Record() *schema.Resource {
 		Delete: resourceAwsRoute53RecordDelete,
 
 		Schema: map[string]*schema.Schema{
-			"name": &schema.Schema{
+			"name": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
@@ -34,18 +34,18 @@ func resourceAwsRoute53Record() *schema.Resource {
 				},
 			},
 
-			"fqdn": &schema.Schema{
+			"fqdn": {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
 
-			"type": &schema.Schema{
+			"type": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
 			},
 
-			"zone_id": &schema.Schema{
+			"zone_id": {
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
@@ -58,7 +58,7 @@ func resourceAwsRoute53Record() *schema.Resource {
 				},
 			},
 
-			"ttl": &schema.Schema{
+			"ttl": {
 				Type:          schema.TypeInt,
 				Optional:      true,
 				ConflictsWith: []string{"alias"},
@@ -67,35 +67,35 @@ func resourceAwsRoute53Record() *schema.Resource {
 			// Weight uses a special sentinel value to indicate it's presense.
 			// Because 0 is a valid value for Weight, we default to -1 so that any
 			// inclusion of a weight (zero or not) will be a usable value
-			"weight": &schema.Schema{
+			"weight": {
 				Type:     schema.TypeInt,
 				Optional: true,
 				Default:  -1,
 			},
 
-			"set_identifier": &schema.Schema{
+			"set_identifier": {
 				Type:     schema.TypeString,
 				Optional: true,
 				ForceNew: true,
 			},
 
-			"alias": &schema.Schema{
+			"alias": {
 				Type:          schema.TypeSet,
 				Optional:      true,
 				ConflictsWith: []string{"records", "ttl"},
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"zone_id": &schema.Schema{
+						"zone_id": {
 							Type:     schema.TypeString,
 							Required: true,
 						},
 
-						"name": &schema.Schema{
+						"name": {
 							Type:     schema.TypeString,
 							Required: true,
 						},
 
-						"evaluate_target_health": &schema.Schema{
+						"evaluate_target_health": {
 							Type:     schema.TypeBool,
 							Required: true,
 						},
@@ -104,32 +104,32 @@ func resourceAwsRoute53Record() *schema.Resource {
 				Set: resourceAwsRoute53AliasRecordHash,
 			},
 
-			"failover": &schema.Schema{ // PRIMARY | SECONDARY
+			"failover": { // PRIMARY | SECONDARY
 				Type:     schema.TypeString,
 				Optional: true,
 			},
 
-			"region": &schema.Schema{ // AWS region from which to evaluate latency
+			"region": { // AWS region from which to evaluate latency
 				Type:          schema.TypeString,
 				Optional:      true,
 				ConflictsWith: []string{"failover", "weight", "geolocation"},
 			},
 
-			"geolocation": &schema.Schema{ // AWS Geolocation
+			"geolocation": { // AWS Geolocation
 				Type:          schema.TypeSet,
 				Optional:      true,
 				ConflictsWith: []string{"failover", "weight", "region"},
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
-						"continent": &schema.Schema{
+						"continent": {
 							Type:     schema.TypeString,
 							Optional: true,
 						},
-						"country": &schema.Schema{
+						"country": {
 							Type:     schema.TypeString,
 							Optional: true,
 						},
-						"subdivision": &schema.Schema{
+						"subdivision": {
 							Type:     schema.TypeString,
 							Optional: true,
 						},
@@ -138,12 +138,12 @@ func resourceAwsRoute53Record() *schema.Resource {
 				Set: resourceAwsRoute53GeolocationRecordHash,
 			},
 
-			"health_check_id": &schema.Schema{ // ID of health check
+			"health_check_id": { // ID of health check
 				Type:     schema.TypeString,
 				Optional: true,
 			},
 
-			"records": &schema.Schema{
+			"records": {
 				Type:          schema.TypeSet,
 				ConflictsWith: []string{"alias"},
 				Elem:          &schema.Schema{Type: schema.TypeString},
@@ -192,7 +192,7 @@ func resourceAwsRoute53RecordCreate(d *schema.ResourceData, meta interface{}) er
 	changeBatch := &route53.ChangeBatch{
 		Comment: aws.String("Managed by Terraform"),
 		Changes: []*route53.Change{
-			&route53.Change{
+			{
 				Action:            aws.String("UPSERT"),
 				ResourceRecordSet: rec,
 			},
@@ -373,7 +373,7 @@ func resourceAwsRoute53RecordDelete(d *schema.ResourceData, meta interface{}) er
 	changeBatch := &route53.ChangeBatch{
 		Comment: aws.String("Deleted by Terraform"),
 		Changes: []*route53.Change{
-			&route53.Change{
+			{
 				Action:            aws.String("DELETE"),
 				ResourceRecordSet: rec,
 			},
@@ -499,7 +499,8 @@ func resourceAwsRoute53RecordBuildSet(d *schema.ResourceData, zoneName string) (
 			SubdivisionCode: nilString(geolocation["subdivision"].(string)),
 		}
 		log.Printf("[DEBUG] Creating geolocation: %#v", geolocation)
-	
+	}
+
 	w := d.Get("weight").(int)
 	if w > -1 {
 		rec.Weight = aws.Int64(int64(w))
